@@ -5,7 +5,8 @@
  * 
  * URL patterns:
  * - Input:  https://{workspace}.slack.com/archives/{CHANNEL_ID}/p{timestamp}
- * - Output (Strategy 1): https://app.slack.com/client/{TEAM_ID}/{CHANNEL_ID} (direct, skips all redirects)
+ * - Output (Strategy 1): https://app.slack.com/client/{TEAM_ID}/{CHANNEL_ID}/thread/{CHANNEL_ID}-{ts}
+ *                        (direct, skips all redirects, opens the message in the thread pane)
  * - Output (Strategy 2): https://{workspace}.slack.com/messages/{CHANNEL_ID}/p{timestamp}
  *                        (which redirects to app.slack.com/client/{TEAM_ID}/{CHANNEL_ID})
  * 
@@ -61,6 +62,15 @@ function detectTeamId(details) {
   }
 }
 
+/**
+ * Converts a permalink segment like "p1787060659511989" to a Slack
+ * message timestamp like "1787060659.511989". Returns null if it isn't one.
+ */
+function permalinkToTs(segment) {
+  const match = /^p(\d+)(\d{6})$/.exec(segment || '');
+  return match ? `${match[1]}.${match[2]}` : null;
+}
+
 // Load team ID cache from storage on startup
 browser.storage.local.get(null, (items) => {
   for (const key in items) {
@@ -103,7 +113,11 @@ browser.webRequest.onBeforeRequest.addListener(
       // Strategy 1: Try direct URL if we have team ID cached
       const cachedTeamId = teamIdCache[workspace];
       if (cachedTeamId) {
-        const directUrl = `https://app.slack.com/client/${cachedTeamId}/${channelId}`;
+        let directUrl = `https://app.slack.com/client/${cachedTeamId}/${channelId}`;
+        const threadTs = urlObj.searchParams.get('thread_ts') || permalinkToTs(pathParts[2]);
+        if (threadTs) {
+          directUrl += `/thread/${channelId}-${threadTs}`;
+        }
         console.log(`Slack Redirect (direct): ${originalUrl} -> ${directUrl}`);
         return { redirectUrl: directUrl };
       }
